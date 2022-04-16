@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  SAM go fiber template
+
+Parameters:
+  ProjectName:
+    Type: String
+  Environment:
+    Type: String
+  Region:
+    Type: String
+  DevDomain:
+    Type: String
+  ProdDomain:
+    Type: String
+  CertificateArn:
+    Type: String
+  HostedZoneId:
+    Type: String
+  VpcId:
+    Type: String
+  SubnetIds:
+    Type: String
+  RdsSecretName:
+    Type: String
+
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 1024
+  Api:
+    BinaryMediaTypes:
+      - image/png
+      - image/jpg
+      - image/jpeg
+      - multipart/form-data
+    Domain:
+      DomainName: !If [IsProd, !Ref ProdDomain, !Ref DevDomain]
+      CertificateArn: !Ref CertificateArn
+      Route53:
+        HostedZoneId: !Ref HostedZoneId
+      BasePath:
+        - /
+
+Conditions:
+  IsProd: !Equals [prod, !Ref Environment]
+
+Resources:
+  LambdaFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Environment}-${ProjectName}-lambda-role
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonVPCFullAccess
+      AssumeRolePolicyDocument: |
+        {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {"Service": ["lambda.amazonaws.com"]},
+            "Action": ["sts:AssumeRole"]
+          }]
+        }
+      Policies:
+        - PolicyName: !Sub ${Environment}-${ProjectName}-lambda-role-policy
+          PolicyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [{
+                  "Effect": "Allow",
+                  "Action": [
+                      "logs:*", 
+                      "secretsmanager:*"
+                  ],
+                  "Resource": "*"
+                }]
+            }
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-${ProjectName}-lambda-role
+
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      OpenApiVersion: 3.0.2
+
+  ApiGatewayDeploy:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref ApiGateway
+
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: !Sub ${Environment}-${ProjectName}-lambda-security-group
+      GroupName: !Sub ${Environment}-${ProjectName}-lambda-security-group
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: '0.0.0.0/0'
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-${ProjectName}-lambda-security-group
+
+
+  LambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${Environment}-${ProjectName}-lambda
+      PackageType: Zip
+      CodeUri: app/
+      Handler: app
+      Runtime: go1.x
+      Role: !GetAtt LambdaFunctionRole.Arn
+      Architectures:
+         - x86_64
+      VpcConfig:
+          SecurityGroupIds: [!Ref LambdaSecurityGroup]
+          SubnetIds: !Split [",", !Ref SubnetIds]
+      Environment:
+        Variables:
+          ENV: !If [IsProd, prod, dev]
+          TZ: Asia/Tokyo
+          REGION: !Ref Region
+          RDS_SECRET_NAME: !Ref RdsSecretName
+      Events:
+        ProdRootApiEvent:
+          Type: Api
+          Properties:
+            Method: ANY
+            Path: /
+            RestApiId: !Ref ApiGateway
+        ProdApiEvent:
+          Type: Api
+          Properties:
+            Method: ANY
+            Path: /{proxy+}
+            RestApiId: !Ref ApiGateway
+
+Outputs:
+  Api:
+    Value: !If [IsProd, !Ref ProdDomain, !Ref DevDomain]
