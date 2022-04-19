@@ -3,7 +3,6 @@ package main
 import (
 	"app/middlewares"
 	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/goccy/go-json"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -22,8 +21,9 @@ import (
 
 var (
 	app = fiber.New(fiber.Config{
-		JSONEncoder: json.Marshal,
-		JSONDecoder: json.Unmarshal,
+		JSONEncoder:  json.Marshal,
+		JSONDecoder:  json.Unmarshal,
+		ErrorHandler: middlewares.ErrorHandler,
 	})
 	fiberLambda *fiberadaptor.FiberLambda
 	ENV         = os.Getenv("ENV")
