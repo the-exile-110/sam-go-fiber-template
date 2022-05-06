@@ -1,12 +1,13 @@
-FROM public.ecr.aws/bitnami/golang:1.18
+FROM golang:1.18 as build-env
 
-WORKDIR /go/src
+WORKDIR /go/src/app
 
-COPY go.mod ./
-COPY go.sum ./
-RUN go mod download
+COPY . .
 
-COPY . ./
-RUN go build -o app main.go
+RUN CGO_ENABLED=0 go build -o /go/bin/app
 
-CMD ["./app"]
+FROM gcr.io/distroless/static
+
+COPY --from=build-env /go/bin/app /
+
+CMD ["/app"]
